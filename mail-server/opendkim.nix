@@ -68,7 +68,7 @@ in
           Syslog yes
           SyslogSuccess yes
           LogWhy yes
-        ''));
+        '') + "\n" + cfg.dkimExtraConfig);
       };
 
       users.users = optionalAttrs (config.services.postfix.user == "postfix") {
