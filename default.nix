@@ -776,6 +776,14 @@ in
       '';
     };
 
+    dkimExtraConfig = mkOption {
+      type = types.str;
+      default = "";
+      description = ''
+        Extra config for OpenDKIM
+      '';
+    };
+
     dkimKeyBits = mkOption {
         type = types.int;
         default = 1024;
