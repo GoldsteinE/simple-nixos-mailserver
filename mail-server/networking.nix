@@ -14,7 +14,7 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>
 
-{ config, pkgs, lib, ... }:
+{ config, lib, ... }:
 
 let
   cfg = config.mailserver;
@@ -31,7 +31,7 @@ in
         ++ lib.optional enablePop3 110
         ++ lib.optional enablePop3Ssl 995
         ++ lib.optional enableManageSieve 4190
-        ++ lib.optional (certificateScheme == 3) 80;
+        ++ lib.optional (certificateScheme == "acme-nginx") 80;
     };
   };
 }

@@ -19,9 +19,9 @@
 let
   cfg = config.mailserver;
   certificatesDeps =
-    if cfg.certificateScheme == 1 then
+    if cfg.certificateScheme == "manual" then
       []
-    else if cfg.certificateScheme == 2 then
+    else if cfg.certificateScheme == "selfsigned" then
       [ "mailserver-selfsigned-certificate.service" ]
     else
       [ "acme-finished-${cfg.fqdn}.target" ];
@@ -29,7 +29,7 @@ in
 {
   config = with cfg; lib.mkIf enable {
     # Create self signed certificate
-    systemd.services.mailserver-selfsigned-certificate = lib.mkIf (cfg.certificateScheme == 2) {
+    systemd.services.mailserver-selfsigned-certificate = lib.mkIf (cfg.certificateScheme == "selfsigned") {
       after = [ "local-fs.target" ];
       script = ''
         # Create certificates if they do not exist yet
@@ -64,6 +64,8 @@ in
       in ''
         # Create mail directory and set permissions. See
         # <http://wiki2.dovecot.org/SharedMailboxes/Permissions>.
+        # Prevent world-readable paths, even temporarily.
+        umask 007
         mkdir -p ${directories}
         chgrp "${vmailGroupName}" ${directories}
         chmod 02770 ${directories}

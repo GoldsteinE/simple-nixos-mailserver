@@ -34,6 +34,9 @@ let
 
     set -euo pipefail
 
+    # Prevent world-readable paths, even temporarily.
+    umask 007
+
     # Create directory to store user sieve scripts if it doesn't exist
     if (! test -d "${sieveDirectory}"); then
       mkdir "${sieveDirectory}"

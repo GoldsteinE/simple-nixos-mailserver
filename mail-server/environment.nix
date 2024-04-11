@@ -23,6 +23,6 @@ in
   config = with cfg; lib.mkIf enable {
     environment.systemPackages = with pkgs; [
       dovecot opendkim openssh postfix rspamd
-    ] ++ (if certificateScheme == 2 then [ openssl ] else []);
+    ] ++ (if certificateScheme == "selfsigned" then [ openssl ] else []);
   };
 }

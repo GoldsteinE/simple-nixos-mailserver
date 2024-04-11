@@ -48,18 +48,19 @@ Setup the server
 ~~~~~~~~~~~~~~~~
 
 The following describes a server setup that is fairly complete. Even
-though there are more possible options (see the ``default.nix`` file),
-these should be the most common ones.
+though there are more possible options (see the `NixOS Mailserver
+options documentation <options.html>`_), these should be the most
+common ones.
 
 .. code:: nix
 
-   { config, pkgs, ... }:
-   {
+   { config, pkgs, ... }: {
      imports = [
        (builtins.fetchTarball {
-         # Pick a commit from the branch you are interested in
-         url = "https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/-/archive/A-COMMIT-ID/nixos-mailserver-A-COMMIT-ID.tar.gz";
-         # And set its hash
+         # Pick a release version you are interested in and set its hash, e.g.
+         url = "https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/-/archive/nixos-23.05/nixos-mailserver-nixos-23.05.tar.gz";
+         # To get the sha256 of the nixos-mailserver tarball, we can use the nix-prefetch-url command:
+         # release="nixos-23.05"; nix-prefetch-url "https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/-/archive/${release}/nixos-mailserver-${release}.tar.gz" --unpack
          sha256 = "0000000000000000000000000000000000000000000000000000";
        })
      ];
@@ -70,19 +71,21 @@ these should be the most common ones.
        domains = [ "example.com" ];
 
        # A list of all login accounts. To create the password hashes, use
-       # nix run nixpkgs.apacheHttpd -c htpasswd -nbB "" "super secret password" | cut -d: -f2
+       # nix-shell -p mkpasswd --run 'mkpasswd -sm bcrypt'
        loginAccounts = {
-           "user1@example.com" = {
-               hashedPasswordFile = "/a/file/containing/a/hashed/password";
-               aliases = ["postmaster@example.com"];
-           };
-           "user2@example.com" = { ... };
+         "user1@example.com" = {
+           hashedPasswordFile = "/a/file/containing/a/hashed/password";
+           aliases = ["postmaster@example.com"];
+         };
+         "user2@example.com" = { ... };
        };
 
        # Use Let's Encrypt certificates. Note that this needs to set up a stripped
        # down nginx and opens port 80.
-       certificateScheme = 3;
+       certificateScheme = "acme-nginx";
      };
+     security.acme.acceptTerms = true;
+     security.acme.defaults.email = "security@example.com";
    }
 
 After a ``nixos-rebuild switch`` your server should be running all
@@ -96,7 +99,14 @@ Set rDNS (reverse DNS) entry for server
 
 Wherever you have rented your server, you should be able to set reverse
 DNS entries for the IP’s you own. Add an entry resolving ``1.2.3.4``
-to ``mail.example.com``
+to ``mail.example.com``.
+
+.. warning::
+
+   We don't recommend setting up a mail server if you are not able to
+   set a reverse DNS on your public IP because sent emails would be
+   mostly marked as spam. Note that many residential ISP providers
+   don't allow you to set a reverse DNS entry.
 
 You can check this with
 

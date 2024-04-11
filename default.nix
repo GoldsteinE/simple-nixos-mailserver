@@ -48,7 +48,11 @@ in
       type = types.listOf types.str;
       example = [ "imap.example.com" "pop3.example.com" ];
       default = [];
-      description = "Secondary domains and subdomains for which it is necessary to generate a certificate.";
+      description = ''
+        ({option}`mailserver.certificateScheme` == `acme-nginx`)
+
+        Secondary domains and subdomains for which it is necessary to generate a certificate.
+      '';
     };
 
     messageSizeLimit = mkOption {
@@ -72,14 +76,14 @@ in
             default = null;
             example = "$6$evQJs5CFQyPAW09S$Cn99Y8.QjZ2IBnSu4qf1vBxDRWkaIZWOtmu1Ddsm3.H3CFpeVc0JU4llIq8HQXgeatvYhh5O33eWG3TSpjzu6/";
             description = ''
-              The user's hashed password. Use `htpasswd` as follows
+              The user's hashed password. Use `mkpasswd` as follows
 
               ```
-              nix run nixpkgs.apacheHttpd -c htpasswd -nbB "" "super secret password" | cut -d: -f2
+              nix-shell -p mkpasswd --run 'mkpasswd -sm bcrypt'
               ```
 
               Warning: this is stored in plaintext in the Nix store!
-              Use `hashedPasswordFile` instead.
+              Use {option}`mailserver.loginAccounts.<name>.hashedPasswordFile` instead.
             '';
           };
 
@@ -88,10 +92,10 @@ in
             default = null;
             example = "/run/keys/user1-passwordhash";
             description = ''
-              A file containing the user's hashed password. Use `htpasswd` as follows
+              A file containing the user's hashed password. Use `mkpasswd` as follows
 
               ```
-              nix run nixpkgs.apacheHttpd -c htpasswd -nbB "" "super secret password" | cut -d: -f2
+              nix-shell -p mkpasswd --run 'mkpasswd -sm bcrypt'
               ```
             '';
           };
@@ -104,6 +108,15 @@ in
               A list of aliases of this login account.
               Note: Use list entries like "@example.com" to create a catchAll
               that allows sending from all email addresses in these domain.
+            '';
+          };
+
+          aliasesRegexp = mkOption {
+            type = with types; listOf types.str;
+            example = [''/^tom\..*@domain\.com$/''];
+            default = [];
+            description = ''
+              Same as {option}`mailserver.aliases` but using PCRE (Perl compatible regex).
             '';
           };
 
@@ -156,7 +169,7 @@ in
             description = ''
               Specifies if the account should be a send-only account.
               Emails sent to send-only accounts will be rejected from
-              unauthorized senders with the sendOnlyRejectMessage
+              unauthorized senders with the `sendOnlyRejectMessage`
               stating the reason.
             '';
           };
@@ -184,14 +197,165 @@ in
       };
       description = ''
         The login account of the domain. Every account is mapped to a unix user,
-        e.g. `user1@example.com`. To generate the passwords use `htpasswd` as
+        e.g. `user1@example.com`. To generate the passwords use `mkpasswd` as
         follows
 
         ```
-        nix run nixpkgs.apacheHttpd -c htpasswd -nbB "" "super secret password" | cut -d: -f2
+        nix-shell -p mkpasswd --run 'mkpasswd -sm bcrypt'
         ```
       '';
       default = {};
+    };
+
+    ldap = {
+      enable = mkEnableOption "LDAP support";
+
+      uris  = mkOption {
+        type = types.listOf types.str;
+        example = literalExpression ''
+          [
+            "ldaps://ldap1.example.com"
+            "ldaps://ldap2.example.com"
+          ]
+        '';
+        description = ''
+          URIs where your LDAP server can be reached
+        '';
+      };
+
+      startTls = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether to enable StartTLS upon connection to the server.
+        '';
+      };
+
+      tlsCAFile = mkOption {
+        type = types.path;
+        default = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+        defaultText = lib.literalMD "see [source](https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/-/blob/master/default.nix)";
+        description = ''
+          Certifificate trust anchors used to verify the LDAP server certificate.
+        '';
+      };
+
+      bind = {
+        dn = mkOption {
+          type = types.str;
+          example = "cn=mail,ou=accounts,dc=example,dc=com";
+          description = ''
+            Distinguished name used by the mail server to do lookups
+            against the LDAP servers.
+          '';
+        };
+
+        passwordFile = mkOption {
+          type = types.str;
+          example = "/run/my-secret";
+          description = ''
+            A file containing the password required to authenticate against the LDAP servers.
+          '';
+        };
+      };
+
+      searchBase = mkOption {
+        type = types.str;
+        example = "ou=people,ou=accounts,dc=example,dc=com";
+        description = ''
+          Base DN at below which to search for users accounts.
+        '';
+      };
+
+      searchScope = mkOption {
+        type = types.enum [ "sub" "base" "one" ];
+        default = "sub";
+        description = ''
+          Search scope below which users accounts are looked for.
+        '';
+      };
+
+      dovecot = {
+        userAttrs = mkOption {
+          type = types.str;
+          default = "";
+          description = ''
+            LDAP attributes to be retrieved during userdb lookups.
+
+            See the users_attrs reference at
+            https://doc.dovecot.org/configuration_manual/authentication/ldap_settings_auth/#user-attrs
+            in the Dovecot manual.
+          '';
+        };
+
+        userFilter = mkOption {
+          type = types.str;
+          default = "mail=%u";
+          example = "(&(objectClass=inetOrgPerson)(mail=%u))";
+          description = ''
+            Filter for user lookups in Dovecot.
+
+            See the user_filter reference at
+            https://doc.dovecot.org/configuration_manual/authentication/ldap_settings_auth/#user-filter
+            in the Dovecot manual.
+          '';
+        };
+
+        passAttrs = mkOption {
+          type = types.str;
+          default = "userPassword=password";
+          description = ''
+            LDAP attributes to be retrieved during passdb lookups.
+
+            See the pass_attrs reference at
+            https://doc.dovecot.org/configuration_manual/authentication/ldap_settings_auth/#pass-attrs
+            in the Dovecot manual.
+          '';
+        };
+
+        passFilter = mkOption {
+          type = types.nullOr types.str;
+          default = "mail=%u";
+          example = "(&(objectClass=inetOrgPerson)(mail=%u))";
+          description = ''
+            Filter for password lookups in Dovecot.
+
+            See the pass_filter reference for
+            https://doc.dovecot.org/configuration_manual/authentication/ldap_settings_auth/#pass-filter
+            in the Dovecot manual.
+          '';
+        };
+      };
+
+      postfix = {
+        filter = mkOption {
+          type = types.str;
+          default = "mail=%s";
+          example = "(&(objectClass=inetOrgPerson)(mail=%s))";
+          description = ''
+            LDAP filter used to search for an account by mail, where
+            `%s` is a substitute for the address in
+            question.
+          '';
+        };
+
+        uidAttribute = mkOption {
+          type = types.str;
+          default = "mail";
+          example = "uid";
+          description = ''
+            The LDAP attribute referencing the account name for a user.
+          '';
+        };
+
+        mailAttribute = mkOption {
+          type = types.str;
+          default = "mail";
+          description = ''
+            The LDAP attribute holding mail addresses for a user.
+          '';
+        };
+      };
     };
 
     indexDir = mkOption {
@@ -200,7 +364,7 @@ in
       description = ''
         Folder to store search indices. If null, indices are stored
         along with email, which could not necessarily be desirable,
-        especially when the fullTextSearch option is enable since
+        especially when {option}`mailserver.fullTextSearch.enable` is `true` since
         indices it creates are voluminous and do not need to be backed
         up.
 
@@ -242,8 +406,8 @@ in
         default = "no";
         description = ''
           Fail searches when no index is available. If set to
-          <literal>body</literal>, then only body searches (as opposed to
-          header) are affected. If set to <literal>no</literal>, searches may
+          `body`, then only body searches (as opposed to
+          header) are affected. If set to `no`, searches may
           fall back to a very slow brute force search.
         '';
       };
@@ -281,7 +445,7 @@ in
         randomizedDelaySec = mkOption {
           type = types.int;
           default = 1000;
-          description = "Run the maintenance job not exactly at the time specified with <literal>onCalendar</literal>, but plus or minus this many seconds.";
+          description = "Run the maintenance job not exactly at the time specified with `onCalendar`, but plus or minus this many seconds.";
         };
       };
     };
@@ -333,7 +497,7 @@ in
         the value {`"user@example.com" = "user@elsewhere.com";}`
         means that mails to `user@example.com` are forwarded to
         `user@elsewhere.com`. The difference with the
-        `extraVirtualAliases` option is that `user@elsewhere.com`
+        {option}`mailserver.extraVirtualAliases` option is that `user@elsewhere.com`
         can't send mail as `user@example.com`. Also, this option
         allows to forward mails to external addresses.
       '';
@@ -367,7 +531,7 @@ in
       description = ''
         The unix UID of the virtual mail user.  Be mindful that if this is
         changed, you will need to manually adjust the permissions of
-        mailDirectory.
+        `mailDirectory`.
       '';
     };
 
@@ -410,6 +574,14 @@ in
       '';
     };
 
+    useUTF8FolderNames = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Store mailbox names on disk using UTF-8 instead of modified UTF-7 (mUTF-7).
+      '';
+    };
+
     hierarchySeparator = mkOption {
       type = types.str;
       default = ".";
@@ -448,19 +620,26 @@ in
       };
     };
 
-    certificateScheme = mkOption {
-      type = types.enum [ 1 2 3 ];
-      default = 2;
+    certificateScheme = let
+      schemes = [ "manual" "selfsigned" "acme-nginx" "acme" ];
+      translate = i: warn "Setting mailserver.certificateScheme by number is deprecated, please use names instead: 'mailserver.certificateScheme = ${builtins.toString i}' can be replaced by 'mailserver.certificateScheme = \"${(builtins.elemAt schemes (i - 1))}\"'."
+        (builtins.elemAt schemes (i - 1));
+    in mkOption {
+      type = with types; coercedTo (enum [ 1 2 3 ]) translate (enum schemes);
+      default = "selfsigned";
       description = ''
-        Certificate Files. There are three options for these.
+        The scheme to use for managing TLS certificates:
 
-        1) You specify locations and manually copy certificates there.
-        2) You let the server create new (self signed) certificates on the fly.
-        3) You let the server create a certificate via `Let's Encrypt`. Note that
-           this implies that a stripped down webserver has to be started. This also
-           implies that the FQDN must be set as an `A` record to point to the IP of
-           the server. In particular port 80 on the server will be opened. For details
-           on how to set up the domain records, see the guide in the readme.
+        1. `manual`: you specify locations via {option}`mailserver.certificateFile` and
+           {option}`mailserver.keyFile` and manually copy certificates there.
+        2. `selfsigned`: you let the server create new (self-signed) certificates on the fly.
+        3. `acme-nginx`: you let the server request certificates from [Let's Encrypt](https://letsencrypt.org)
+           via NixOS' ACME module. By default, this will set up a stripped-down Nginx server for
+           {option}`mailserver.fqdn` and open port 80. For this to work, the FQDN must be properly
+           configured to point to your server (see the [setup guide](setup-guide.rst) for more information).
+        4. `acme`: you already have an ACME certificate set up (for example, you're already running a TLS-enabled
+           Nginx server on the FQDN). This is better than `manual` because the appropriate services will be reloaded
+           when the certificate is renewed.
       '';
     };
 
@@ -468,8 +647,9 @@ in
       type = types.path;
       example = "/root/mail-server.crt";
       description = ''
-        Scheme 1)
-        Location of the certificate
+        ({option}`mailserver.certificateScheme` == `manual`)
+
+        Location of the certificate.
       '';
     };
 
@@ -477,8 +657,9 @@ in
       type = types.path;
       example = "/root/mail-server.key";
       description = ''
-        Scheme 1)
-        Location of the key file
+        ({option}`mailserver.certificateScheme` == `manual`)
+
+        Location of the key file.
       '';
     };
 
@@ -486,8 +667,9 @@ in
       type = types.path;
       default = "/var/certs";
       description = ''
-        Scheme 2)
-        This is the folder where the certificate will be created. The name is
+        ({option}`mailserver.certificateScheme` == `selfsigned`)
+
+        This is the folder where the self-signed certificate will be created. The name is
         hardcoded to "cert-DOMAIN.pem" and "key-DOMAIN.pem" and the
         certificate is valid for 10 years.
       '';
@@ -582,7 +764,7 @@ in
       type = types.str;
       default = "mail";
       description = ''
-
+        The DKIM selector.
       '';
     };
 
@@ -590,15 +772,7 @@ in
       type = types.path;
       default = "/var/dkim";
       description = ''
-
-      '';
-    };
-
-    dkimExtraConfig = mkOption {
-      type = types.str;
-      default = "";
-      description = ''
-        Extra config for OpenDKIM
+        The DKIM directory.
       '';
     };
 
@@ -609,7 +783,7 @@ in
             How many bits in generated DKIM keys. RFC6376 advises minimum 1024-bit keys.
 
             If you have already deployed a key with a different number of bits than specified
-            here, then you should use a different selector (dkimSelector). In order to get
+            here, then you should use a different selector ({option}`mailserver.dkimSelector`). In order to get
             this package to generate a key with the new number of bits, you will either have to
             change the selector or delete the old key file.
         '';
@@ -633,6 +807,67 @@ in
 
           See https://datatracker.ietf.org/doc/html/rfc6376/#section-3.4 for details.
         '';
+    };
+
+    dmarcReporting = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether to send out aggregated, daily DMARC reports in response to incoming
+          mail, when the sender domain defines a DMARC policy including the RUA tag.
+
+          This is helpful for the mail ecosystem, because it allows third parties to
+          get notified about SPF/DKIM violations originating from their sender domains.
+
+          See https://rspamd.com/doc/modules/dmarc.html#reporting
+        '';
+      };
+
+      localpart = mkOption {
+        type = types.str;
+        default = "dmarc-noreply";
+        example = "dmarc-report";
+        description = ''
+          The local part of the email address used for outgoing DMARC reports.
+        '';
+      };
+
+      domain = mkOption {
+        type = types.enum (cfg.domains);
+        example = "example.com";
+        description = ''
+          The domain from which outgoing DMARC reports are served.
+        '';
+      };
+
+      email = mkOption {
+        type = types.str;
+        default = with cfg.dmarcReporting; "${localpart}@${domain}";
+        defaultText = literalExpression ''"''${localpart}@''${domain}"'';
+        readOnly = true;
+        description = ''
+          The email address used for outgoing DMARC reports. Read-only.
+        '';
+      };
+
+      organizationName = mkOption {
+        type = types.str;
+        example = "ACME Corp.";
+        description = ''
+          The name of your organization used in the `org_name` attribute in
+          DMARC reports.
+        '';
+      };
+
+      fromName = mkOption {
+        type = types.str;
+        default = cfg.dmarcReporting.organizationName;
+        defaultText = literalMD "{option}`mailserver.dmarcReporting.organizationName`";
+        description = ''
+          The sender name for DMARC reports. Defaults to the organization name.
+        '';
+      };
     };
 
     debug = mkOption {
@@ -685,7 +920,7 @@ in
         if (ip == "0.0.0.0" || ip == "::")
         then "127.0.0.1"
         else if isIpv6 ip then "[${ip}]" else ip;
-        defaultText = lib.literalDocBook "computed from <option>config.services.redis.servers.rspamd.bind</option>";
+        defaultText = lib.literalMD "computed from `config.services.redis.servers.rspamd.bind`";
         description = ''
           Address that rspamd should use to contact redis.
         '';
@@ -720,10 +955,25 @@ in
       '';
     };
 
+    smtpdForbidBareNewline = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        With "smtpd_forbid_bare_newline = yes", the Postfix SMTP server
+        disconnects a remote SMTP client that sends a line ending in a 'bare
+        newline'.
+
+        This feature was added in Postfix 3.8.4 against SMTP Smuggling and will
+        default to "yes" in Postfix 3.9.
+
+        https://www.postfix.org/smtp-smuggling.html
+      '';
+    };
+
     sendingFqdn = mkOption {
       type = types.str;
       default = cfg.fqdn;
-      defaultText = "config.mailserver.fqdn";
+      defaultText = lib.literalMD "{option}`mailserver.fqdn`";
       example = "myserver.example.com";
       description = ''
         The fully qualified domain name of the mail server used to
@@ -739,7 +989,7 @@ in
 
         This setting allows the server to identify as
         myserver.example.com when forwarding mail, independently of
-        `fqdn` (which, for SSL reasons, should generally be the name
+        {option}`mailserver.fqdn` (which, for SSL reasons, should generally be the name
         to which the user connects).
 
         Set this to the name to which the sending IP's reverse DNS
@@ -811,7 +1061,7 @@ in
                 start program = "${pkgs.systemd}/bin/systemctl start rspamd"
                 stop program = "${pkgs.systemd}/bin/systemctl stop rspamd"
         '';
-        defaultText = lib.literalDocBook "see source";
+        defaultText = lib.literalMD "see [source](https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/-/blob/master/default.nix)";
         description = ''
           The configuration used for monitoring via monit.
           Use a mail address that you actively check and set it via 'set alert ...'.
@@ -828,7 +1078,8 @@ in
         description = ''
           The location where borg saves the backups.
           This can be a local path or a remote location such as user@host:/path/to/repo.
-          It is exported and thus available as an environment variable to cmdPreexec and cmdPostexec.
+          It is exported and thus available as an environment variable to
+          {option}`mailserver.borgbackup.cmdPreexec` and {option}`mailserver.borgbackup.cmdPostexec`.
         '';
       };
 
@@ -888,7 +1139,7 @@ in
           default = "none";
           description = ''
             The backup can be encrypted by choosing any other value than 'none'.
-            When using encryption the password / passphrase must be provided in passphraseFile.
+            When using encryption the password/passphrase must be provided in `passphraseFile`.
           '';
         };
 
@@ -911,6 +1162,7 @@ in
       locations = mkOption {
         type = types.listOf types.path;
         default = [cfg.mailDirectory];
+        defaultText = lib.literalExpression "[ config.mailserver.mailDirectory ]";
         description = "The locations that are to be backed up by borg.";
       };
 
@@ -931,9 +1183,10 @@ in
         default = null;
         description = ''
           The command to be executed before each backup operation.
-          This is called prior to borg init in the same script that runs borg init and create and cmdPostexec.
-          Example:
-            export BORG_RSH="ssh -i /path/to/private/key"
+          This is called prior to borg init in the same script that runs borg init and create and `cmdPostexec`.
+        '';
+        example = ''
+          export BORG_RSH="ssh -i /path/to/private/key"
         '';
       };
 
@@ -943,7 +1196,7 @@ in
         description = ''
           The command to be executed after each backup operation.
           This is called after borg create completed successfully and in the same script that runs
-          cmdPreexec, borg init and create.
+          `cmdPreexec`, borg init and create.
         '';
       };
 
@@ -956,7 +1209,7 @@ in
         example = true;
         description = ''
           Whether to enable automatic reboot after kernel upgrades.
-          This is to be used in conjunction with system.autoUpgrade.enable = true"
+          This is to be used in conjunction with `system.autoUpgrade.enable = true;`
         '';
       };
       method = mkOption {
@@ -1031,6 +1284,7 @@ in
   };
 
   imports = [
+    ./mail-server/assertions.nix
     ./mail-server/borgbackup.nix
     ./mail-server/debug.nix
     ./mail-server/rsnapshot.nix

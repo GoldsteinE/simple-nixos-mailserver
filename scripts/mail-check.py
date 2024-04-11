@@ -9,7 +9,7 @@ import time
 
 RETRY = 100
 
-def _send_mail(smtp_host, smtp_port, from_addr, from_pwd, to_addr, subject, starttls):
+def _send_mail(smtp_host, smtp_port, smtp_username, from_addr, from_pwd, to_addr, subject, starttls):
     print("Sending mail with subject '{}'".format(subject))
     message = "\n".join([
         "From: {from_addr}",
@@ -30,7 +30,7 @@ def _send_mail(smtp_host, smtp_port, from_addr, from_pwd, to_addr, subject, star
                     if starttls:
                         smtp.starttls()
                     if from_pwd is not None:
-                        smtp.login(from_addr, from_pwd)
+                        smtp.login(smtp_username or from_addr, from_pwd)
 
                     smtp.sendmail(from_addr, [to_addr], message)
                     return
@@ -141,6 +141,7 @@ def send_and_read(args):
 
     _send_mail(smtp_host=args.smtp_host,
                smtp_port=args.smtp_port,
+               smtp_username=args.smtp_username,
                from_addr=args.from_addr,
                from_pwd=src_pwd,
                to_addr=args.to_addr,
@@ -171,6 +172,7 @@ parser_send_and_read = subparsers.add_parser('send-and-read', description="Send 
 parser_send_and_read.add_argument('--smtp-host', type=str)
 parser_send_and_read.add_argument('--smtp-port', type=str, default=25)
 parser_send_and_read.add_argument('--smtp-starttls', action='store_true')
+parser_send_and_read.add_argument('--smtp-username', type=str, default='', help="username used for smtp login. If not specified, the from-addr value is used")
 parser_send_and_read.add_argument('--from-addr', type=str)
 parser_send_and_read.add_argument('--imap-host', required=True, type=str)
 parser_send_and_read.add_argument('--imap-port', type=str, default=993)

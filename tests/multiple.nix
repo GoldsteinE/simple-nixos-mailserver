@@ -5,9 +5,9 @@
 let
     hashPassword = password: pkgs.runCommand
       "password-${password}-hashed"
-      { buildInputs = [ pkgs.apacheHttpd ]; }
+      { buildInputs = [ pkgs.mkpasswd ]; inherit password; }
       ''
-        htpasswd -nbB "" "${password}" | cut -d: -f2 > $out
+        mkpasswd -sm bcrypt <<<"$password" > $out
       '';
 
     password = pkgs.writeText "password" "password";
@@ -30,6 +30,8 @@ let
       };
       services.dnsmasq = {
         enable = true;
+        # Fixme: once nixos-22.11 has been removed, could be replaced by
+        # settings.mx-host = [ "domain1.com,domain1,10" "domain2.com,domain2,10" ];
         extraConfig = ''
           mx-host=domain1.com,domain1,10
           mx-host=domain2.com,domain2,10

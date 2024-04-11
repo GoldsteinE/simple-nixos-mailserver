@@ -29,6 +29,8 @@ Welcome to NixOS Mailserver's documentation!
    rspamd-tuning
    fts
    flakes
+   autodiscovery
+   ldap
 
 Indices and tables
 ==================

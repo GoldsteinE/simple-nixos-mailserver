@@ -14,9 +14,9 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program. If not, see <http://www.gnu.org/licenses/>
 
-import <nixpkgs/nixos/tests/make-test.nix> {
+import <nixpkgs/nixos/tests/make-test-python.nix> {
 
-  machine =
+  nodes.machine =
     { config, pkgs, ... }:
     {
         imports = [
@@ -26,6 +26,6 @@ import <nixpkgs/nixos/tests/make-test.nix> {
 
   testScript =
     ''
-      $machine->waitForUnit("multi-user.target");
+      machine.wait_for_unit("multi-user.target");
     '';
 }

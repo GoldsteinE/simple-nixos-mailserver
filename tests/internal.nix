@@ -29,8 +29,8 @@ let
 
   hashPassword = password: pkgs.runCommand
     "password-${password}-hashed"
-    { buildInputs = [ pkgs.apacheHttpd ]; } ''
-      htpasswd -nbB "" "${password}" | cut -d: -f2 > $out
+    { buildInputs = [ pkgs.mkpasswd ]; inherit password; } ''
+      mkpasswd -sm bcrypt <<<"$password" > $out
     '';
 
   hashedPasswordFile = hashPassword "my-password";
@@ -55,7 +55,7 @@ pkgs.nixosTest {
       mailserver = {
         enable = true;
         fqdn = "mail.example.com";
-        domains = [ "example.com" ];
+        domains = [ "example.com" "domain.com" ];
         localDnsResolver = false;
 
         loginAccounts = {
@@ -64,6 +64,7 @@ pkgs.nixosTest {
           };
           "user2@example.com" = {
             hashedPasswordFile = hashedPasswordFile;
+            aliasesRegexp = [''/^user2.*@domain\.com$/''];
           };
           "send-only@example.com" = {
             hashedPasswordFile = hashPassword "send-only";
@@ -119,6 +120,46 @@ pkgs.nixosTest {
                     "--imap-username user2@example.com",
                     "--from-addr user1@example.com",
                     "--to-addr user2@example.com",
+                    "--src-password-file ${passwordFile}",
+                    "--dst-password-file ${passwordFile}",
+                    "--ignore-dkim-spf",
+                ]
+            )
+        )
+
+    with subtest("regex email alias are received"):
+        # A mail sent to user2-regex-alias@domain.com is in the user2@example.com mailbox
+        machine.succeed(
+            " ".join(
+                [
+                    "mail-check send-and-read",
+                    "--smtp-port 587",
+                    "--smtp-starttls",
+                    "--smtp-host localhost",
+                    "--imap-host localhost",
+                    "--imap-username user2@example.com",
+                    "--from-addr user1@example.com",
+                    "--to-addr user2-regex-alias@domain.com",
+                    "--src-password-file ${passwordFile}",
+                    "--dst-password-file ${passwordFile}",
+                    "--ignore-dkim-spf",
+                ]
+            )
+        )
+
+    with subtest("user can send from regex email alias"):
+        # A mail sent from user2-regex-alias@domain.com, using user2@example.com credentials is received
+        machine.succeed(
+            " ".join(
+                [
+                    "mail-check send-and-read",
+                    "--smtp-port 587",
+                    "--smtp-starttls",
+                    "--smtp-host localhost",
+                    "--imap-host localhost",
+                    "--smtp-username user2@example.com",
+                    "--from-addr user2-regex-alias@domain.com",
+                    "--to-addr user1@example.com",
                     "--src-password-file ${passwordFile}",
                     "--dst-password-file ${passwordFile}",
                     "--ignore-dkim-spf",

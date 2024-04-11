@@ -33,6 +33,11 @@ let
       let to = name;
       in map (from: {"${from}" = to;}) (value.aliases ++ lib.singleton name))
     cfg.loginAccounts));
+  regex_valiases_postfix = mergeLookupTables (lib.flatten (lib.mapAttrsToList
+    (name: value:
+      let to = name;
+      in map (from: {"${from}" = to;}) value.aliasesRegexp)
+    cfg.loginAccounts));
 
   # catchAllPostfix :: Map String [String]
   catchAllPostfix =  mergeLookupTables (lib.flatten (lib.mapAttrsToList
@@ -65,6 +70,10 @@ let
     content = lookupTableToString (mergeLookupTables [all_valiases_postfix catchAllPostfix]);
   in builtins.toFile "valias" content;
 
+  regex_valiases_file = let
+    content = lookupTableToString regex_valiases_postfix;
+  in builtins.toFile "regex_valias" content;
+
   # denied_recipients_postfix :: [ String ]
   denied_recipients_postfix = (map
     (acct: "${acct.name} REJECT ${acct.sendOnlyRejectMessage}")
@@ -94,6 +103,7 @@ let
   # every alias is owned (uniquely) by its user.
   # The user's own address is already in all_valiases_postfix.
   vaccounts_file = builtins.toFile "vaccounts" (lookupTableToString all_valiases_postfix);
+  regex_vaccounts_file = builtins.toFile "regex_vaccounts" (lookupTableToString regex_valiases_postfix);
 
   submissionHeaderCleanupRules = pkgs.writeText "submission_header_cleanup_rules" (''
      # Removes sensitive headers from mails handed in via the submission port.
@@ -123,6 +133,7 @@ let
   policyd-spf = pkgs.writeText "policyd-spf.conf" cfg.policydSPFExtraConfig;
 
   mappedFile = name: "hash:/var/lib/postfix/conf/${name}";
+  mappedRegexFile = name: "pcre:/var/lib/postfix/conf/${name}";
 
   submissionOptions =
     {
@@ -133,21 +144,73 @@ let
       smtpd_sasl_security_options = "noanonymous";
       smtpd_sasl_local_domain = "$myhostname";
       smtpd_client_restrictions = "permit_sasl_authenticated,reject";
-      smtpd_sender_login_maps = "hash:/etc/postfix/vaccounts";
+      smtpd_sender_login_maps = "hash:/etc/postfix/vaccounts${lib.optionalString cfg.ldap.enable ",ldap:${ldapSenderLoginMapFile}"}${lib.optionalString (regex_valiases_postfix != {}) ",pcre:/etc/postfix/regex_vaccounts"}";
       smtpd_sender_restrictions = "reject_sender_login_mismatch";
       smtpd_recipient_restrictions = "reject_non_fqdn_recipient,reject_unknown_recipient_domain,permit_sasl_authenticated,reject";
       cleanup_service_name = "submission-header-cleanup";
     };
+
+  commonLdapConfig = ''
+    server_host = ${lib.concatStringsSep " " cfg.ldap.uris}
+    start_tls = ${if cfg.ldap.startTls then "yes" else "no"}
+    version = 3
+    tls_ca_cert_file = ${cfg.ldap.tlsCAFile}
+    tls_require_cert = yes
+
+    search_base = ${cfg.ldap.searchBase}
+    scope = ${cfg.ldap.searchScope}
+
+    bind = yes
+    bind_dn = ${cfg.ldap.bind.dn}
+  '';
+
+  ldapSenderLoginMap = pkgs.writeText "ldap-sender-login-map.cf" ''
+    ${commonLdapConfig}
+    query_filter = ${cfg.ldap.postfix.filter}
+    result_attribute = ${cfg.ldap.postfix.mailAttribute}
+  '';
+  ldapSenderLoginMapFile = "/run/postfix/ldap-sender-login-map.cf";
+  appendPwdInSenderLoginMap = appendLdapBindPwd {
+    name = "ldap-sender-login-map";
+    file = ldapSenderLoginMap;
+    prefix = "bind_pw = ";
+    passwordFile = cfg.ldap.bind.passwordFile;
+    destination = ldapSenderLoginMapFile;
+  };
+
+  ldapVirtualMailboxMap = pkgs.writeText "ldap-virtual-mailbox-map.cf" ''
+    ${commonLdapConfig}
+    query_filter = ${cfg.ldap.postfix.filter}
+    result_attribute = ${cfg.ldap.postfix.uidAttribute}
+  '';
+  ldapVirtualMailboxMapFile = "/run/postfix/ldap-virtual-mailbox-map.cf";
+  appendPwdInVirtualMailboxMap = appendLdapBindPwd {
+    name = "ldap-virtual-mailbox-map";
+    file = ldapVirtualMailboxMap;
+    prefix = "bind_pw = ";
+    passwordFile = cfg.ldap.bind.passwordFile;
+    destination = ldapVirtualMailboxMapFile;
+  };
 in
 {
   config = with cfg; lib.mkIf enable {
+
+    systemd.services.postfix-setup = lib.mkIf cfg.ldap.enable {
+      preStart = ''
+        ${appendPwdInVirtualMailboxMap}
+        ${appendPwdInSenderLoginMap}
+      '';
+      restartTriggers = [ appendPwdInVirtualMailboxMap appendPwdInSenderLoginMap ];
+    };
 
     services.postfix = {
       enable = true;
       hostname = "${sendingFqdn}";
       networksStyle = "host";
       mapFiles."valias" = valiases_file;
+      mapFiles."regex_valias" = regex_valiases_file;
       mapFiles."vaccounts" = vaccounts_file;
+      mapFiles."regex_vaccounts" = regex_vaccounts_file;
       mapFiles."denied_recipients" = denied_recipients_file;
       mapFiles."reject_senders" = reject_senders_file;
       mapFiles."reject_recipients" = reject_recipients_file;
@@ -170,7 +233,16 @@ in
         virtual_gid_maps = "static:5000";
         virtual_mailbox_base = mailDirectory;
         virtual_mailbox_domains = vhosts_file;
-        virtual_mailbox_maps = mappedFile "valias";
+        virtual_mailbox_maps = [
+          (mappedFile "valias")
+        ] ++ lib.optionals (cfg.ldap.enable) [
+          "ldap:${ldapVirtualMailboxMapFile}"
+        ] ++ lib.optionals (regex_valiases_postfix != {}) [
+          (mappedRegexFile "regex_valias")
+        ];
+        virtual_alias_maps = lib.mkAfter (lib.optionals (regex_valiases_postfix != {}) [
+          (mappedRegexFile "regex_valias")
+        ]);
         virtual_transport = "lmtp:unix:/run/dovecot2/dovecot-lmtp";
         # Avoid leakage of X-Original-To, X-Delivered-To headers between recipients
         lmtp_destination_recipient_limit = "1";
@@ -237,6 +309,9 @@ in
         milter_protocol = "6";
         milter_mail_macros = "i {mail_addr} {client_addr} {client_name} {auth_type} {auth_authen} {auth_author} {mail_addr} {mail_host} {mail_mailer}";
 
+        # Fix for https://www.postfix.org/smtp-smuggling.html
+        smtpd_forbid_bare_newline = cfg.smtpdForbidBareNewline;
+        smtpd_forbid_bare_newline_exclusions = "$mynetworks";
       };
 
       submissionOptions = submissionOptions;

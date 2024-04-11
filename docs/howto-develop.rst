@@ -10,7 +10,7 @@ Run NixOS tests
 ---------------
 
 To run the test suite, you need to enable `Nix Flakes
-<https://nixos.wiki/wiki/Flakes#Installing_flakes>`.
+<https://nixos.wiki/wiki/Flakes#Installing_flakes>`_.
 
 You can then run the testsuite via
 
@@ -30,28 +30,20 @@ run tests manually. For instance:
 Contributing to the documentation
 ---------------------------------
 
-The documentation is written in RST, build with Sphinx and published
-by `Read the Docs <https://readthedocs.org/>`_.
+The documentation is written in RST (except option documentation which is in CommonMark),
+built with Sphinx and published by `Read the Docs <https://readthedocs.org/>`_.
 
-For the syntax, see `RST/Sphinx Cheatsheet
-<https://sphinx-tutorial.readthedocs.io/cheatsheet/>`_.
+For the syntax, see the `RST/Sphinx primer
+<https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html>`_.
 
-The ``shell.nix`` provides all the tooling required to build the
-documentation:
+To build the documentation, you need to enable `Nix Flakes
+<https://nixos.wiki/wiki/Flakes#Installing_flakes>`_.
 
-::
-
-   $ nix-shell
-   $ cd docs
-   $ make html
-   $ firefox ./_build/html/index.html
-
-Note if you modify some NixOS mailserver options, you would also need
-to regenerate the ``options.rst`` file:
 
 ::
 
-   $ nix-shell --run generate-rst-options
+   $ nix build .#documentation
+   $ xdg-open result/index.html
 
 Nixops
 ------

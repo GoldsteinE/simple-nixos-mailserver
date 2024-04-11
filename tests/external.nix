@@ -43,6 +43,11 @@ pkgs.nixosTest {
               domains = [ "example.com" "example2.com" ];
               rewriteMessageId = true;
               dkimKeyBits = 1535;
+              dmarcReporting = {
+                enable = true;
+                domain = "example.com";
+                organizationName = "ACME Corp";
+              };
 
               loginAccounts = {
                   "user1@example.com" = {
@@ -345,7 +350,7 @@ pkgs.nixosTest {
 
       # TODO put this blocking into the systemd units?
       server.wait_until_succeeds(
-          "set +e; timeout 1 ${nodes.server.pkgs.netcat}/bin/nc -U /run/rspamd/rspamd-milter.sock < /dev/null; [ $? -eq 124 ]"
+          "set +e; timeout 1 ${nodes.server.nixpkgs.pkgs.netcat}/bin/nc -U /run/rspamd/rspamd-milter.sock < /dev/null; [ $? -eq 124 ]"
       )
 
       client.execute("cp -p /etc/root/.* ~/")
@@ -493,6 +498,9 @@ pkgs.nixosTest {
           )
           # check that Junk is not indexed
           server.fail("journalctl -u dovecot2 | grep 'indexer-worker' | grep -i 'JUNK' >&2")
+
+      with subtest("dmarc reporting"):
+          server.systemctl("start rspamd-dmarc-reporter.service")
 
       with subtest("no warnings or errors"):
           server.fail("journalctl -u postfix | grep -i error >&2")
