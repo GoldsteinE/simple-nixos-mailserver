@@ -1,3 +1,5 @@
+# THIS IS A PRIVATE FORK, PLEASE DON’T EXPECT ANYTHING
+
 # ![Simple Nixos MailServer][logo]
 ![license](https://img.shields.io/badge/license-GPL3-brightgreen.svg)
 [![pipeline status](https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/badges/master/pipeline.svg)](https://gitlab.com/simple-nixos-mailserver/nixos-mailserver/commits/master)
